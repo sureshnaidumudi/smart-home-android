@@ -38,4 +38,7 @@ interface DeviceDao {
 
     @Query("UPDATE devices SET roomOwnerId = :newRoomId WHERE deviceId = :deviceId")
     suspend fun updateDeviceRoom(deviceId: String, newRoomId: String)
+    
+    @Query("UPDATE devices SET isOnline = :online WHERE deviceId = :deviceId")
+    suspend fun updateDeviceOnlineStatus(deviceId: String, online: Boolean)
 }
