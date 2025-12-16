@@ -39,10 +39,12 @@ data class MqttCommandPayload(
  * { "isOn": true }
  * { "isOn": false }
  * { "value": 42.5 }
+ * { "isOn": true, "msg": "Turned ON successfully" }
  */
 data class MqttStatePayload(
     val isOn: Boolean? = null,
-    val value: Float? = null
+    val value: Float? = null,
+    val msg: String? = null  // Optional response message from hardware
 )
 
 /**

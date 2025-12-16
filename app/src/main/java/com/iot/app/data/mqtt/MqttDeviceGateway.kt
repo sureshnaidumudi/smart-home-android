@@ -104,6 +104,7 @@ class MqttDeviceGateway private constructor(
     // These are hot flows that multiple observers can collect from
     private val stateFlow = MutableSharedFlow<Pair<String, DeviceState>>(replay = 0, extraBufferCapacity = 100)
     private val statusFlow = MutableSharedFlow<DeviceStatus>(replay = 0, extraBufferCapacity = 100)
+    private val responseFlow = MutableSharedFlow<Pair<String, String?>>(replay = 0, extraBufferCapacity = 100)  // (deviceId, message)
     
     // Track subscriptions to avoid duplicate subscribes
     private val subscribedTopics = ConcurrentHashMap.newKeySet<String>()
@@ -277,6 +278,15 @@ class MqttDeviceGateway private constructor(
     }
     
     /**
+     * Observe device response messages
+     */
+    fun observeDeviceResponse(deviceId: String): Flow<String?> {
+        return responseFlow
+            .filter { (id, _) -> id == deviceId }
+            .map { (_, message) -> message }
+    }
+    
+    /**
      * Subscribe to all state and status topics with wildcards
      */
     private suspend fun subscribeToAllTopics() {
@@ -364,9 +374,18 @@ class MqttDeviceGateway private constructor(
             }
         }
         
-        Log.i(TAG, "✅ Parsed state for device $deviceId: $deviceState")
+        // Extract response message if present
+        val responseMessage = statePayload.msg ?: "Device state updated"
+        
+        Log.i(TAG, "✅ Parsed state for device $deviceId: $deviceState, msg: $responseMessage")
+        
+        // Emit state to state flow
         stateFlow.emit(deviceId to deviceState)
-        Log.d(TAG, "✅ State emitted to flow for device $deviceId")
+        
+        // Emit response message to response flow
+        responseFlow.emit(deviceId to responseMessage)
+        
+        Log.d(TAG, "✅ State and response emitted to flows for device $deviceId")
     }
     
     /**

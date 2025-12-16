@@ -33,6 +33,18 @@ interface DeviceDao {
     @Query("UPDATE devices SET state = :state, stateValue = :stateValue WHERE deviceId = :deviceId")
     suspend fun updateDeviceState(deviceId: String, state: String, stateValue: Float?)
 
+    @Query("UPDATE devices SET state = :state, stateValue = :stateValue, responseMessage = :responseMessage, responseStatus = :responseStatus WHERE deviceId = :deviceId")
+    suspend fun updateDeviceStateWithResponse(
+        deviceId: String, 
+        state: String, 
+        stateValue: Float?,
+        responseMessage: String?,
+        responseStatus: String
+    )
+    
+    @Query("UPDATE devices SET responseMessage = :message, responseStatus = :status WHERE deviceId = :deviceId")
+    suspend fun updateDeviceResponse(deviceId: String, message: String?, status: String)
+
     @Query("UPDATE devices SET name = :newName WHERE deviceId = :deviceId")
     suspend fun updateDeviceName(deviceId: String, newName: String)
 

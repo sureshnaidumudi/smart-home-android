@@ -8,5 +8,7 @@ data class Device(
     val type: DeviceType,
     val roomId: String,
     val state: DeviceState = DeviceState.Off,
-    val isOnline: Boolean = true
+    val isOnline: Boolean = true,
+    val responseMessage: String? = null,
+    val responseStatus: DeviceResponseStatus = DeviceResponseStatus.IDLE
 )

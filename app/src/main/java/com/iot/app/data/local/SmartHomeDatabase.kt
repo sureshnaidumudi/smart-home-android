@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.iot.app.data.local.dao.DeviceDao
 import com.iot.app.data.local.dao.HomeDao
@@ -18,7 +19,7 @@ import java.util.UUID
 
 @Database(
     entities = [HomeEntity::class, RoomEntity::class, DeviceEntity::class],
-    version = 1,
+    version = 2,  // Incremented for migration
     exportSchema = false
 )
 abstract class SmartHomeDatabase : RoomDatabase() {
@@ -29,6 +30,21 @@ abstract class SmartHomeDatabase : RoomDatabase() {
     companion object {
         @Volatile
         private var INSTANCE: SmartHomeDatabase? = null
+        
+        /**
+         * Migration from version 1 to 2: Add response feedback fields
+         */
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Add new columns with default values
+                database.execSQL(
+                    "ALTER TABLE devices ADD COLUMN responseMessage TEXT DEFAULT NULL"
+                )
+                database.execSQL(
+                    "ALTER TABLE devices ADD COLUMN responseStatus TEXT NOT NULL DEFAULT 'IDLE'"
+                )
+            }
+        }
 
         fun getDatabase(context: Context): SmartHomeDatabase {
             return INSTANCE ?: synchronized(this) {
@@ -38,6 +54,7 @@ abstract class SmartHomeDatabase : RoomDatabase() {
                     "smart_home_database"
                 )
                     .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
+                    .addMigrations(MIGRATION_1_2)  // Add migration
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)
