@@ -344,17 +344,29 @@ class MqttDeviceGateway private constructor(
      * Handle state update message
      */
     private suspend fun handleStateMessage(topic: String, payload: String) {
-        val deviceId = MqttTopicBuilder.extractDeviceId(topic) ?: return
-        val statePayload = MqttJson.decodeState(payload) ?: return
+        val deviceId = MqttTopicBuilder.extractDeviceId(topic) ?: run {
+            Log.w(TAG, "⚠️  Could not extract deviceId from topic: $topic")
+            return
+        }
+        
+        val statePayload = MqttJson.decodeState(payload) ?: run {
+            Log.w(TAG, "⚠️  Failed to parse state payload: $payload")
+            return
+        }
         
         val deviceState = when {
             statePayload.isOn == true -> DeviceState.On
             statePayload.isOn == false -> DeviceState.Off
             statePayload.value != null -> DeviceState.Value(statePayload.value)
-            else -> return
+            else -> {
+                Log.w(TAG, "⚠️  State payload has no valid fields: $payload")
+                return
+            }
         }
         
+        Log.i(TAG, "✅ Parsed state for device $deviceId: $deviceState")
         stateFlow.emit(deviceId to deviceState)
+        Log.d(TAG, "✅ State emitted to flow for device $deviceId")
     }
     
     /**

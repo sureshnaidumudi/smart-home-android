@@ -60,12 +60,12 @@ class SmartHomeRepository private constructor(
             instance ?: synchronized(this) {
                 instance ?: SmartHomeRepository(
                     context.applicationContext,
-                    null  // Temporarily disable MQTT for testing
-                    //MqttDeviceGateway.getInstance(context.applicationContext)
+                    //null  // Temporarily disable MQTT for testing
+                    MqttDeviceGateway.getInstance(context.applicationContext)
                 ).also { 
                     instance = it
                     // Initialize MQTT connection
-                    //it.initializeMqtt()
+                    it.initializeMqtt()
                 }
             }
 
@@ -104,13 +104,12 @@ class SmartHomeRepository private constructor(
         scope.launch {
             try {
                 gateway?.connect()
-                Log.i(TAG, "MQTT gateway connected")
+                Log.i(TAG, "MQTT gateway connected - starting global state observers")
                 
-                // Observe state updates from all devices and sync to DB
-                devices.value.forEach { device ->
-                    observeDeviceStateUpdates(device.id)
-                    observeDeviceStatusUpdates(device.id)
-                }
+                // Observe ALL state updates globally (not per-device)
+                // This ensures we catch states for devices added later or from external sources
+                observeAllDeviceStateUpdates()
+                observeAllDeviceStatusUpdates()
             } catch (e: Exception) {
                 Log.e(TAG, "MQTT initialization failed: ${e.message}", e)
                 // App continues to work with local DB only
@@ -119,28 +118,48 @@ class SmartHomeRepository private constructor(
     }
     
     /**
-     * Observe MQTT state updates for a device and sync to DB
+     * Observe ALL MQTT state updates globally and sync to DB
+     * This catches state updates for any device, even if app didn't initiate the action
      */
-    private fun observeDeviceStateUpdates(deviceId: String) {
+    private fun observeAllDeviceStateUpdates() {
         gateway?.let { gw ->
             scope.launch {
-                gw.observeDeviceState(deviceId).collect { newState ->
-                    Log.d(TAG, "MQTT state update for $deviceId: $newState")
-                    updateDeviceState(deviceId, newState)
+                // Collect from the gateway's global state flow
+                // MqttDeviceGateway emits (deviceId, DeviceState) pairs
+                devices.value.forEach { device ->
+                    launch {
+                        gw.observeDeviceState(device.id).collect { newState ->
+                            Log.i(TAG, "📥 MQTT state received for device ${device.id}: $newState")
+                            
+                            // Update Room DB - this will trigger UI update via Flow
+                            val (stateString, stateValue) = when (newState) {
+                                is DeviceState.On -> "ON" to null
+                                is DeviceState.Off -> "OFF" to null
+                                is DeviceState.Value -> "VALUE" to newState.value
+                            }
+                            deviceDao.updateDeviceState(device.id, stateString, stateValue)
+                            Log.i(TAG, "💾 DB updated: device ${device.id} -> $stateString${stateValue?.let { " ($it)" } ?: ""}")
+                        }
+                    }
                 }
             }
         }
     }
     
     /**
-     * Observe MQTT status updates for a device and update online/offline
+     * Observe ALL MQTT status updates globally and update online/offline
      */
-    private fun observeDeviceStatusUpdates(deviceId: String) {
+    private fun observeAllDeviceStatusUpdates() {
         gateway?.let { gw ->
             scope.launch {
-                gw.observeDeviceStatus(deviceId).collect { status ->
-                    Log.d(TAG, "MQTT status update for $deviceId: online=${status.online}")
-                    deviceDao.updateDeviceOnlineStatus(deviceId, status.online)
+                devices.value.forEach { device ->
+                    launch {
+                        gw.observeDeviceStatus(device.id).collect { status ->
+                            Log.i(TAG, "📡 MQTT status received for device ${device.id}: online=${status.online}")
+                            deviceDao.updateDeviceOnlineStatus(device.id, status.online)
+                            Log.i(TAG, "💾 DB updated: device ${device.id} online status -> ${status.online}")
+                        }
+                    }
                 }
             }
         }
@@ -201,12 +220,29 @@ class SmartHomeRepository private constructor(
             val newDevice = Device(name = name, type = type, roomId = roomId)
             deviceDao.insertDevice(newDevice.toEntity())
             
-            // Start observing this new device
-            observeDeviceStateUpdates(newDevice.id)
-            observeDeviceStatusUpdates(newDevice.id)
-            
-            // Send initial state request to device if gateway is connected
+            // Start observing this new device's state and status
             gateway?.let { gw ->
+                launch {
+                    gw.observeDeviceState(newDevice.id).collect { newState ->
+                        Log.i(TAG, "📥 MQTT state received for NEW device ${newDevice.id}: $newState")
+                        val (stateString, stateValue) = when (newState) {
+                            is DeviceState.On -> "ON" to null
+                            is DeviceState.Off -> "OFF" to null
+                            is DeviceState.Value -> "VALUE" to newState.value
+                        }
+                        deviceDao.updateDeviceState(newDevice.id, stateString, stateValue)
+                        Log.i(TAG, "💾 DB updated: new device ${newDevice.id} -> $stateString")
+                    }
+                }
+                
+                launch {
+                    gw.observeDeviceStatus(newDevice.id).collect { status ->
+                        Log.i(TAG, "📡 MQTT status received for NEW device ${newDevice.id}: online=${status.online}")
+                        deviceDao.updateDeviceOnlineStatus(newDevice.id, status.online)
+                    }
+                }
+                
+                // Send initial state request to device if connected
                 val room = roomDao.getRoomById(roomId)
                 if (room != null && gw.isConnected()) {
                     sendCommandToDevice(room.homeOwnerId, roomId, newDevice.id, DeviceCommand.RequestState)
@@ -251,6 +287,7 @@ class SmartHomeRepository private constructor(
                     is DeviceState.Value -> "VALUE" to newState.value
                 }
                 deviceDao.updateDeviceState(deviceId, stateString, stateValue)
+                Log.i(TAG, "🔄 Optimistic update: device $deviceId -> $stateString")
                 
                 // Send MQTT command to physical device
                 val command = if (newState is DeviceState.On) {
@@ -262,6 +299,7 @@ class SmartHomeRepository private constructor(
                 val room = roomDao.getRoomById(device.roomOwnerId)
                 if (room != null) {
                     sendCommandToDevice(room.homeOwnerId, device.roomOwnerId, deviceId, command)
+                    Log.i(TAG, "📤 MQTT command sent: $command to device $deviceId")
                 }
             }
         }
