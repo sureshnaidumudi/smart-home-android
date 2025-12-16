@@ -25,5 +25,7 @@ data class DeviceEntity(
     val type: String, // DeviceType as String
     val state: String, // DeviceState serialized as String
     val stateValue: Float? = null, // For DeviceState.Value
-    val isOnline: Boolean = true
+    val isOnline: Boolean = true,
+    val responseMessage: String? = null,  // Hardware response message
+    val responseStatus: String = "IDLE"   // DeviceResponseStatus as String
 )

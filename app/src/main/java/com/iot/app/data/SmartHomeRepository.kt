@@ -110,6 +110,7 @@ class SmartHomeRepository private constructor(
                 // This ensures we catch states for devices added later or from external sources
                 observeAllDeviceStateUpdates()
                 observeAllDeviceStatusUpdates()
+                observeAllDeviceResponseMessages()
             } catch (e: Exception) {
                 Log.e(TAG, "MQTT initialization failed: ${e.message}", e)
                 // App continues to work with local DB only
@@ -137,6 +138,9 @@ class SmartHomeRepository private constructor(
                                 is DeviceState.Off -> "OFF" to null
                                 is DeviceState.Value -> "VALUE" to newState.value
                             }
+                            
+                            // Update state and set response status to CONFIRMED
+                            // Response message comes from MQTT state payload (handled separately)
                             deviceDao.updateDeviceState(device.id, stateString, stateValue)
                             Log.i(TAG, "💾 DB updated: device ${device.id} -> $stateString${stateValue?.let { " ($it)" } ?: ""}")
                         }
@@ -159,6 +163,31 @@ class SmartHomeRepository private constructor(
                             deviceDao.updateDeviceOnlineStatus(device.id, status.online)
                             Log.i(TAG, "💾 DB updated: device ${device.id} online status -> ${status.online}")
                         }
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * Observe ALL MQTT response messages and update DB
+     */
+    private fun observeAllDeviceResponseMessages() {
+        val mqttGateway = gateway as? MqttDeviceGateway ?: return
+        
+        scope.launch {
+            devices.value.forEach { device ->
+                launch {
+                    mqttGateway.observeDeviceResponse(device.id).collect { message ->
+                        Log.i(TAG, "💬 MQTT response message for device ${device.id}: $message")
+                        
+                        // Update response status to CONFIRMED with the message
+                        deviceDao.updateDeviceResponse(
+                            deviceId = device.id,
+                            message = message,
+                            status = "CONFIRMED"
+                        )
+                        Log.i(TAG, "💾 DB updated: device ${device.id} response -> CONFIRMED")
                     }
                 }
             }
@@ -242,6 +271,17 @@ class SmartHomeRepository private constructor(
                     }
                 }
                 
+                // Observe response messages for new device
+                val mqttGateway = gw as? MqttDeviceGateway
+                mqttGateway?.let { mqtt ->
+                    launch {
+                        mqtt.observeDeviceResponse(newDevice.id).collect { message ->
+                            Log.i(TAG, "💬 MQTT response message for NEW device ${newDevice.id}: $message")
+                            deviceDao.updateDeviceResponse(newDevice.id, message, "CONFIRMED")
+                        }
+                    }
+                }
+                
                 // Send initial state request to device if connected
                 val room = roomDao.getRoomById(roomId)
                 if (room != null && gw.isConnected()) {
@@ -280,14 +320,22 @@ class SmartHomeRepository private constructor(
                     else -> DeviceState.Off
                 }
                 
-                // OPTIMISTIC UI UPDATE: Update DB immediately
+                // OPTIMISTIC UI UPDATE: Update DB immediately with WAITING status
                 val (stateString, stateValue) = when (newState) {
                     is DeviceState.On -> "ON" to null
                     is DeviceState.Off -> "OFF" to null
                     is DeviceState.Value -> "VALUE" to newState.value
                 }
-                deviceDao.updateDeviceState(deviceId, stateString, stateValue)
-                Log.i(TAG, "🔄 Optimistic update: device $deviceId -> $stateString")
+                
+                // Set response status to WAITING
+                deviceDao.updateDeviceStateWithResponse(
+                    deviceId = deviceId,
+                    state = stateString,
+                    stateValue = stateValue,
+                    responseMessage = "Waiting for device response...",
+                    responseStatus = "WAITING"
+                )
+                Log.i(TAG, "🔄 Optimistic update: device $deviceId -> $stateString (WAITING)")
                 
                 // Send MQTT command to physical device
                 val command = if (newState is DeviceState.On) {

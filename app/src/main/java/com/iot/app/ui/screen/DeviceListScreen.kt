@@ -33,10 +33,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.iot.app.model.Device
+import com.iot.app.model.DeviceResponseStatus
 import com.iot.app.model.DeviceState
 import com.iot.app.model.DeviceType
 import com.iot.app.ui.viewmodel.DeviceListViewModel
@@ -145,6 +147,25 @@ fun DeviceCard(
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.outline
                     )
+                    
+                    // Response status indicator
+                    if (device.responseStatus != DeviceResponseStatus.IDLE && 
+                        device.responseMessage != null) {
+                        val responseColor = when (device.responseStatus) {
+                            DeviceResponseStatus.WAITING -> Color(0xFFFF9800)  // Orange
+                            DeviceResponseStatus.CONFIRMED -> Color(0xFF4CAF50)  // Green
+                            DeviceResponseStatus.IDLE -> Color.Transparent
+                        }
+                        
+                        Text(
+                            text = device.responseMessage,
+                            fontSize = 11.sp,
+                            color = responseColor,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
                 }
                 IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
                     Icon(
