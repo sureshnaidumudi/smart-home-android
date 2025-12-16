@@ -58,7 +58,7 @@ data class MqttStatePayload(
 data class MqttStatusPayload(
     val online: Boolean
 )
-
+// to check the git comment is updating
 /**
  * JSON serializer using Gson
  */

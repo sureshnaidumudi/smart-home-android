@@ -1,3 +1,8 @@
+// TEST COMMIT: Git push & browser verification
+// Date: <today's date>
+// Purpose: Verify commit → push → GitHub sync
+
+
 package com.iot.app.data
 
 import android.content.Context
